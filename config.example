@@ -1,0 +1,48 @@
+# Raspberry Pi Spotify Streamer setup configuration.
+# Copy to config.local and edit, then run:
+#   sudo ./scripts/setup.sh ./config.local
+
+# Spotify Connect name shown in Spotify apps.
+DEVICE_NAME="Canton RC-L"
+
+# USB DAC matching string used when ALSA_DEVICE is empty.
+# The installer searches `aplay -L` and `/proc/asound/cards`.
+USB_DAC_MATCH="Schiit Modi"
+
+# Optional explicit ALSA output. Leave empty for auto-detection.
+# Good examples:
+#   ALSA_DEVICE="plughw:CARD=S3,DEV=0"
+#   ALSA_DEVICE="default:CARD=S3"
+ALSA_DEVICE=""
+
+# Raspotify/librespot settings.
+LIBRESPOT_BITRATE="320"
+LIBRESPOT_FORMAT="S16"
+LIBRESPOT_INITIAL_VOLUME="75"
+LIBRESPOT_VOLUME_NORMALISATION="yes"
+
+# Now Playing web UI.
+WEB_HOST="127.0.0.1"
+WEB_PORT="3000"
+APP_DIR="/opt/spotify-now-playing"
+APP_USER="spotify-now-playing"
+ENV_FILE="/etc/spotify-now-playing.env"
+
+# Optional Spotify API secrets. Prefer leaving these blank and using:
+#   sudo /opt/spotify-now-playing/get_refresh_token.py
+SPOTIFY_CLIENT_ID=""
+SPOTIFY_CLIENT_SECRET=""
+SPOTIFY_REFRESH_TOKEN=""
+
+# Kiosk display.
+INSTALL_KIOSK="yes"
+KIOSK_USER="yaroslav"
+KIOSK_URL="http://localhost:3000"
+
+# If a labwc desktop session already exists, the installer adds a per-user
+# labwc autostart entry. If no desktop stack exists and this is "yes", it
+# installs minimal labwc/chromium packages and creates spotify-kiosk.service.
+INSTALL_MINIMAL_GUI_IF_MISSING="yes"
+
+# Disable display blanking where Raspberry Pi tools support it.
+DISABLE_SCREEN_BLANKING="yes"

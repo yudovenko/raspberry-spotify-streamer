@@ -1,0 +1,31 @@
+#!/bin/sh
+set -eu
+
+URL="${KIOSK_URL:-http://localhost:3000}"
+PROFILE_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/spotify-now-playing-chromium"
+
+if pgrep -u "$(id -u)" -f "chromium.*${URL}" >/dev/null 2>&1; then
+  exit 0
+fi
+
+for _ in $(seq 1 60); do
+  if curl -fsS "$URL/health" >/dev/null 2>&1; then
+    break
+  fi
+  sleep 1
+done
+
+mkdir -p "$PROFILE_DIR"
+
+exec /usr/bin/chromium \
+  --kiosk "$URL" \
+  --user-data-dir="$PROFILE_DIR" \
+  --password-store=basic \
+  --no-first-run \
+  --no-default-browser-check \
+  --noerrdialogs \
+  --disable-infobars \
+  --disable-session-crashed-bubble \
+  --disable-translate \
+  --autoplay-policy=no-user-gesture-required \
+  --check-for-update-interval=31536000

@@ -1,0 +1,23 @@
+[Unit]
+Description=Local Spotify Now Playing Web UI
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=@APP_USER@
+Group=@APP_USER@
+WorkingDirectory=@APP_DIR@
+EnvironmentFile=@ENV_FILE@
+Environment=STATIC_DIR=@APP_DIR@/app/static
+ExecStart=/usr/bin/python3 -m uvicorn app.main:app --host @WEB_HOST@ --port @WEB_PORT@ --no-access-log
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadOnlyPaths=@APP_DIR@
+
+[Install]
+WantedBy=multi-user.target
