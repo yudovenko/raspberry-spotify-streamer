@@ -11,6 +11,7 @@ USB_DAC_MATCH="Schiit Modi"
 
 # Optional explicit ALSA output. Leave empty for auto-detection.
 # Good examples:
+#   ALSA_DEVICE="hw:CARD=S3,DEV=0"
 #   ALSA_DEVICE="plughw:CARD=S3,DEV=0"
 #   ALSA_DEVICE="default:CARD=S3"
 ALSA_DEVICE=""
@@ -18,8 +19,9 @@ ALSA_DEVICE=""
 # Raspotify/librespot settings.
 LIBRESPOT_BITRATE="320"
 LIBRESPOT_FORMAT="S16"
-LIBRESPOT_INITIAL_VOLUME="75"
-LIBRESPOT_VOLUME_NORMALISATION="yes"
+LIBRESPOT_INITIAL_VOLUME="100"
+LIBRESPOT_VOLUME_CTRL="fixed"
+LIBRESPOT_VOLUME_NORMALISATION="no"
 
 # Now Playing web UI.
 WEB_HOST="127.0.0.1"

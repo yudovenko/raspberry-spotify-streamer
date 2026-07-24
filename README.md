@@ -49,8 +49,8 @@ On the Pi:
 ```bash
 sudo apt-get update
 sudo apt-get -y install git
-git clone git@github.com:yudovenko/rasbperry-spotify-streamer.git
-cd rasbperry-spotify-streamer
+git clone git@github.com:yudovenko/raspberry-spotify-streamer.git
+cd raspberry-spotify-streamer
 cp config.example config.local
 nano config.local
 sudo ./scripts/setup.sh ./config.local
@@ -81,7 +81,7 @@ If `ALSA_DEVICE` is empty, the installer searches ALSA cards for
 `USB_DAC_MATCH` and configures:
 
 ```text
-plughw:CARD=<detected-card-id>,DEV=0
+hw:CARD=<detected-card-id>,DEV=0
 ```
 
 If auto-detection fails, find the device manually:
@@ -94,8 +94,38 @@ aplay -L
 Then set, for example:
 
 ```bash
+ALSA_DEVICE="hw:CARD=S3,DEV=0"
+```
+
+Use `plughw` only if direct `hw` output fails with your DAC:
+
+```bash
 ALSA_DEVICE="plughw:CARD=S3,DEV=0"
 ```
+
+## Hi-Fi Playback Settings
+
+The default installer profile is quality-oriented:
+
+```bash
+LIBRESPOT_DEVICE="hw:CARD=<detected-card-id>,DEV=0"
+LIBRESPOT_BITRATE="320"
+LIBRESPOT_FORMAT="S16"
+LIBRESPOT_INITIAL_VOLUME="100"
+LIBRESPOT_VOLUME_CTRL="fixed"
+LIBRESPOT_VOLUME_NORMALISATION="no"
+```
+
+This keeps Spotify Connect at 320 kbps, avoids librespot loudness
+normalization, avoids digital volume attenuation, and sends audio directly to
+the USB DAC through ALSA where possible.
+
+If direct hardware output does not work with your DAC, change `ALSA_DEVICE` to
+`plughw:CARD=...,DEV=0` in `config.local` and rerun setup. `plughw` is more
+compatible but may allow ALSA conversion.
+
+For fair comparisons against another source, match volume carefully. A louder
+source almost always sounds better in quick A/B tests.
 
 ## Spotify API Setup
 
@@ -234,7 +264,7 @@ Confirm that the DAC appears as a USB Audio device. If it appears with a stable
 card ID, put it in `config.local`:
 
 ```bash
-ALSA_DEVICE="plughw:CARD=S3,DEV=0"
+ALSA_DEVICE="hw:CARD=S3,DEV=0"
 ```
 
 Then rerun:
