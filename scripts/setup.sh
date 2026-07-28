@@ -99,6 +99,7 @@ install_base_packages() {
     alsa-utils \
     ca-certificates \
     curl \
+    fonts-nunito-sans \
     gnupg \
     rsync \
     python3-fastapi \

@@ -36,5 +36,7 @@ exec /usr/bin/chromium \
   --disable-infobars \
   --disable-session-crashed-bubble \
   --disable-translate \
+  --enable-font-antialiasing \
+  --font-render-hinting=medium \
   --autoplay-policy=no-user-gesture-required \
   --check-for-update-interval=31536000
