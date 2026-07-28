@@ -1,6 +1,8 @@
 import base64
+import json
 import os
 import time
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -11,6 +13,8 @@ from fastapi.staticfiles import StaticFiles
 SPOTIFY_TOKEN_URL = "https://accounts.spotify.com/api/token"
 SPOTIFY_PLAYER_URL = "https://api.spotify.com/v1/me/player"
 STATIC_DIR = os.environ.get("STATIC_DIR", "/opt/spotify-now-playing/app/static")
+LOCAL_STATE_FILE = Path(os.environ.get("SPOTIFY_NOW_PLAYING_STATE_FILE", "/run/raspotify/now-playing.json"))
+LOCAL_STATE_MAX_AGE_SECONDS = int(os.environ.get("SPOTIFY_NOW_PLAYING_STATE_MAX_AGE_SECONDS", "21600"))
 
 app = FastAPI(title="Spotify Now Playing")
 
@@ -94,6 +98,75 @@ def normalized_progress(payload: dict[str, Any], item: dict[str, Any]) -> int:
     return max(0, min(duration, progress))
 
 
+def empty_response(message: str, configured: bool = True) -> JSONResponse:
+    return JSONResponse(
+        {
+            "configured": configured,
+            "empty": True,
+            "playing": False,
+            "message": message,
+        },
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+def local_state_response() -> JSONResponse | None:
+    try:
+        stat = LOCAL_STATE_FILE.stat()
+    except FileNotFoundError:
+        return None
+    except OSError:
+        return None
+
+    if time.time() - stat.st_mtime > LOCAL_STATE_MAX_AGE_SECONDS:
+        return None
+
+    try:
+        state = json.loads(LOCAL_STATE_FILE.read_text())
+    except Exception:
+        return None
+
+    if state.get("empty"):
+        return empty_response(state.get("message") or "Nothing is playing.")
+
+    if not state.get("track") and not state.get("track_id"):
+        return None
+
+    now_ms = int(time.time() * 1000)
+    duration_ms = int(state.get("duration_ms") or 0)
+    progress_ms = int(state.get("progress_ms") or 0)
+    updated_at_ms = int(state.get("position_updated_at_ms") or state.get("updated_at_ms") or now_ms)
+
+    if state.get("playing") and duration_ms:
+        progress_ms += now_ms - updated_at_ms
+
+    if duration_ms:
+        progress_ms = max(0, min(duration_ms, progress_ms))
+    else:
+        progress_ms = max(0, progress_ms)
+
+    return JSONResponse(
+        {
+            "configured": True,
+            "playing": bool(state.get("playing")),
+            "empty": False,
+            "progress_ms": progress_ms,
+            "raw_progress_ms": int(state.get("progress_ms") or 0),
+            "duration_ms": duration_ms,
+            "track": state.get("track") or "Unknown track",
+            "artist": state.get("artist") or "Unknown artist",
+            "album": state.get("album") or "",
+            "album_art": state.get("album_art"),
+            "track_id": state.get("track_id"),
+            "device": "Canton RC-L",
+            "repeat_state": state.get("repeat_state") or "off",
+            "server_time_ms": now_ms,
+            "source": "raspotify-event",
+        },
+        headers={"Cache-Control": "no-store"},
+    )
+
+
 def serialize_player(payload: dict[str, Any]) -> dict[str, Any]:
     item = payload.get("item") or {}
     album = item.get("album") or {}
@@ -164,29 +237,18 @@ async def spotify_request(method: str, path: str, **kwargs: Any) -> JSONResponse
 
 @app.get("/api/current")
 async def current_playback() -> JSONResponse:
+    local_response = local_state_response()
+    if local_response is not None:
+        return local_response
+
     if not credentials_configured():
-        return JSONResponse(
-            {
-                "configured": False,
-                "empty": True,
-                "playing": False,
-                "message": "Spotify API credentials are not configured.",
-            },
-            headers={"Cache-Control": "no-store"},
-        )
+        return empty_response("Spotify API credentials are not configured.", configured=False)
 
     token = await refresh_access_token()
     if not token:
-        return JSONResponse(
-            {
-                "configured": False,
-                "empty": True,
-                "playing": False,
-                "message": "Could not refresh Spotify access token.",
-            },
-            status_code=502,
-            headers={"Cache-Control": "no-store"},
-        )
+        response = empty_response("Could not refresh Spotify access token.", configured=False)
+        response.status_code = 502
+        return response
 
     async with httpx.AsyncClient(timeout=10) as client:
         response = await client.get(
@@ -204,15 +266,7 @@ async def current_playback() -> JSONResponse:
             )
 
     if response.status_code == 204:
-        return JSONResponse(
-            {
-                "configured": True,
-                "empty": True,
-                "playing": False,
-                "message": "Nothing is playing.",
-            },
-            headers={"Cache-Control": "no-store"},
-        )
+        return empty_response("Nothing is playing.")
 
     if response.status_code != 200:
         return JSONResponse(
@@ -228,26 +282,10 @@ async def current_playback() -> JSONResponse:
 
     payload = response.json()
     if not payload or not payload.get("item"):
-        return JSONResponse(
-            {
-                "configured": True,
-                "empty": True,
-                "playing": False,
-                "message": "Nothing is playing.",
-            },
-            headers={"Cache-Control": "no-store"},
-        )
+        return empty_response("Nothing is playing.")
 
     if has_stale_progress(payload, payload["item"]):
-        return JSONResponse(
-            {
-                "configured": True,
-                "empty": True,
-                "playing": False,
-                "message": "Spotify returned stale playback state. Re-select Canton RC-L in Spotify.",
-            },
-            headers={"Cache-Control": "no-store"},
-        )
+        return empty_response("Spotify returned stale playback state. Re-select Canton RC-L in Spotify.")
 
     return JSONResponse(serialize_player(payload), headers={"Cache-Control": "no-store"})
 

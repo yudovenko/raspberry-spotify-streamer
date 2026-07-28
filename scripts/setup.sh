@@ -134,9 +134,7 @@ LIBRESPOT_FORMAT="${LIBRESPOT_FORMAT}"
 LIBRESPOT_MIXER_TYPE="softvol"
 LIBRESPOT_INITIAL_VOLUME="${LIBRESPOT_INITIAL_VOLUME}"
 LIBRESPOT_VOLUME_CTRL="${LIBRESPOT_VOLUME_CTRL}"
-LIBRESPOT_DISABLE_AUDIO_CACHE=
-LIBRESPOT_DISABLE_CREDENTIAL_CACHE=
-LIBRESPOT_QUIET=
+LIBRESPOT_ONEVENT="${APP_DIR}/raspotify-event-writer.py"
 TMPDIR=/tmp
 EOF
 
@@ -156,6 +154,7 @@ install_web_app() {
 
   run mkdir -p "${APP_DIR}"
   run rsync -a --delete "${REPO_DIR}/app/" "${APP_DIR}/app/"
+  run install -m 0755 "${REPO_DIR}/scripts/raspotify-event-writer.py" "${APP_DIR}/raspotify-event-writer.py"
   run install -m 0755 "${REPO_DIR}/scripts/get_refresh_token.py" "${APP_DIR}/get_refresh_token.py"
   run chown -R "${APP_USER}:${APP_USER}" "${APP_DIR}"
 
@@ -239,8 +238,8 @@ main() {
   echo "Using ALSA output: ${detected_device}"
 
   install_raspotify
-  configure_raspotify "${detected_device}"
   install_web_app
+  configure_raspotify "${detected_device}"
   install_kiosk
 
   echo
