@@ -64,7 +64,18 @@ def image_url(item: dict[str, Any]) -> str | None:
     images = item.get("album", {}).get("images", [])
     if not images:
         return None
-    return images[0].get("url")
+    largest = max(images, key=lambda image: int(image.get("width") or 0) * int(image.get("height") or 0))
+    return largest.get("url")
+
+
+def has_stale_progress(payload: dict[str, Any], item: dict[str, Any]) -> bool:
+    duration = int(item.get("duration_ms") or 0)
+    progress = int(payload.get("progress_ms") or 0)
+
+    if duration <= 0:
+        return False
+
+    return progress < -5000 or progress > duration + 60000
 
 
 def normalized_progress(payload: dict[str, Any], item: dict[str, Any]) -> int:
@@ -223,6 +234,17 @@ async def current_playback() -> JSONResponse:
                 "empty": True,
                 "playing": False,
                 "message": "Nothing is playing.",
+            },
+            headers={"Cache-Control": "no-store"},
+        )
+
+    if has_stale_progress(payload, payload["item"]):
+        return JSONResponse(
+            {
+                "configured": True,
+                "empty": True,
+                "playing": False,
+                "message": "Spotify returned stale playback state. Re-select Canton RC-L in Spotify.",
             },
             headers={"Cache-Control": "no-store"},
         )
