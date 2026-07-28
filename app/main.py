@@ -67,24 +67,45 @@ def image_url(item: dict[str, Any]) -> str | None:
     return images[0].get("url")
 
 
+def normalized_progress(payload: dict[str, Any], item: dict[str, Any]) -> int:
+    duration = int(item.get("duration_ms") or 0)
+    progress = int(payload.get("progress_ms") or 0)
+
+    if duration <= 0:
+        return max(0, progress)
+
+    if 0 <= progress <= duration:
+        return progress
+
+    if payload.get("is_playing"):
+        return progress % duration
+
+    return max(0, min(duration, progress))
+
+
 def serialize_player(payload: dict[str, Any]) -> dict[str, Any]:
     item = payload.get("item") or {}
     album = item.get("album") or {}
     artists = item.get("artists") or []
     artist_names = ", ".join(a.get("name", "") for a in artists if a.get("name"))
+    duration_ms = int(item.get("duration_ms") or 0)
+    progress_ms = normalized_progress(payload, item)
 
     return {
         "configured": True,
         "playing": bool(payload.get("is_playing")),
         "empty": False,
-        "progress_ms": payload.get("progress_ms") or 0,
-        "duration_ms": item.get("duration_ms") or 0,
+        "progress_ms": progress_ms,
+        "raw_progress_ms": payload.get("progress_ms") or 0,
+        "duration_ms": duration_ms,
         "track": item.get("name") or "Unknown track",
         "artist": artist_names or "Unknown artist",
         "album": album.get("name") or "Unknown album",
         "album_art": image_url(item),
+        "track_id": item.get("id"),
         "device": (payload.get("device") or {}).get("name"),
         "repeat_state": payload.get("repeat_state") or "off",
+        "server_time_ms": int(time.time() * 1000),
     }
 
 
@@ -113,7 +134,7 @@ async def spotify_request(method: str, path: str, **kwargs: Any) -> JSONResponse
             )
 
     if response.status_code in (200, 202, 204):
-        return JSONResponse({"ok": True})
+        return JSONResponse({"ok": True}, headers={"Cache-Control": "no-store"})
 
     message = "Spotify control request failed."
     try:
@@ -127,7 +148,7 @@ async def spotify_request(method: str, path: str, **kwargs: Any) -> JSONResponse
     elif response.status_code == 404:
         message = "No active Spotify device is available."
 
-    return JSONResponse({"ok": False, "message": message}, status_code=response.status_code)
+    return JSONResponse({"ok": False, "message": message}, status_code=response.status_code, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/current")
@@ -139,7 +160,8 @@ async def current_playback() -> JSONResponse:
                 "empty": True,
                 "playing": False,
                 "message": "Spotify API credentials are not configured.",
-            }
+            },
+            headers={"Cache-Control": "no-store"},
         )
 
     token = await refresh_access_token()
@@ -152,6 +174,7 @@ async def current_playback() -> JSONResponse:
                 "message": "Could not refresh Spotify access token.",
             },
             status_code=502,
+            headers={"Cache-Control": "no-store"},
         )
 
     async with httpx.AsyncClient(timeout=10) as client:
@@ -176,7 +199,8 @@ async def current_playback() -> JSONResponse:
                 "empty": True,
                 "playing": False,
                 "message": "Nothing is playing.",
-            }
+            },
+            headers={"Cache-Control": "no-store"},
         )
 
     if response.status_code != 200:
@@ -188,6 +212,7 @@ async def current_playback() -> JSONResponse:
                 "message": f"Spotify API returned HTTP {response.status_code}.",
             },
             status_code=502,
+            headers={"Cache-Control": "no-store"},
         )
 
     payload = response.json()
@@ -198,10 +223,11 @@ async def current_playback() -> JSONResponse:
                 "empty": True,
                 "playing": False,
                 "message": "Nothing is playing.",
-            }
+            },
+            headers={"Cache-Control": "no-store"},
         )
 
-    return JSONResponse(serialize_player(payload))
+    return JSONResponse(serialize_player(payload), headers={"Cache-Control": "no-store"})
 
 
 @app.put("/api/play")

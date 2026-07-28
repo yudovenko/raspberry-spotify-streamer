@@ -18,7 +18,7 @@ const els = {
   notice: document.getElementById('notice'),
 };
 
-let current = { playing: false, duration_ms: 0, repeat_state: 'off' };
+let current = { playing: false, duration_ms: 0, progress_ms: 0, repeat_state: 'off', received_at: Date.now() };
 let noticeTimer;
 
 function formatMs(ms) {
@@ -36,11 +36,13 @@ function showNotice(message) {
 
 function setArt(url) {
   if (url) {
-    els.art.src = url;
+    if (els.art.src !== url) els.art.src = url;
+    document.body.style.setProperty('--cover-url', `url("${url}")`);
     els.art.hidden = false;
     els.fallback.hidden = true;
   } else {
     els.art.removeAttribute('src');
+    document.body.style.removeProperty('--cover-url');
     els.art.hidden = true;
     els.fallback.hidden = false;
   }
@@ -56,7 +58,7 @@ function setRepeat(state) {
 }
 
 function renderEmpty(message, configured = true) {
-  current = { playing: false, duration_ms: 0, repeat_state: 'off' };
+  current = { playing: false, duration_ms: 0, progress_ms: 0, repeat_state: 'off', received_at: Date.now() };
   els.state.className = 'state idle';
   els.track.textContent = configured ? 'Nothing playing' : 'Spotify API not configured';
   els.artist.textContent = '';
@@ -69,6 +71,21 @@ function renderEmpty(message, configured = true) {
   setArt(null);
 }
 
+function displayProgress() {
+  let progress = current.progress_ms || 0;
+  const duration = current.duration_ms || 0;
+
+  if (current.playing && duration) {
+    progress += Date.now() - current.received_at;
+  }
+
+  progress = Math.max(0, duration ? Math.min(duration, progress) : progress);
+  els.elapsed.textContent = formatMs(progress);
+  els.duration.textContent = duration ? `-${formatMs(Math.max(0, duration - progress))}` : '0:00';
+  const pct = duration ? Math.min(100, (progress / duration) * 100) : 0;
+  els.fill.style.width = `${pct}%`;
+}
+
 function render(data) {
   if (!data.configured) {
     renderEmpty(data.message, false);
@@ -79,15 +96,12 @@ function render(data) {
     return;
   }
 
-  current = data;
+  current = { ...data, received_at: Date.now() };
   els.state.className = data.playing ? 'state' : 'state paused';
   els.track.textContent = data.track;
   els.artist.textContent = data.artist;
   els.album.textContent = data.album;
-  els.elapsed.textContent = formatMs(data.progress_ms);
-  els.duration.textContent = `-${formatMs(Math.max(0, data.duration_ms - data.progress_ms))}`;
-  const pct = data.duration_ms ? Math.min(100, (data.progress_ms / data.duration_ms) * 100) : 0;
-  els.fill.style.width = `${pct}%`;
+  displayProgress();
   setPlayIcon(data.playing);
   setRepeat(data.repeat_state);
   setArt(data.album_art);
@@ -145,3 +159,4 @@ els.seekBar.addEventListener('pointerup', (event) => {
 
 poll();
 setInterval(poll, 1500);
+setInterval(displayProgress, 250);
