@@ -17,6 +17,15 @@ done
 
 mkdir -p "$PROFILE_DIR"
 
+# Chromium leaves Singleton* locks if the kiosk process is killed or the host
+# name changes. If no Chromium is running, these are stale and block startup.
+if ! pgrep -u "$(id -u)" chromium >/dev/null 2>&1; then
+  rm -f "$PROFILE_DIR"/SingletonCookie \
+        "$PROFILE_DIR"/SingletonLock \
+        "$PROFILE_DIR"/SingletonSocket \
+        "$PROFILE_DIR"/LOCK 2>/dev/null || true
+fi
+
 exec /usr/bin/chromium \
   --kiosk "$URL" \
   --user-data-dir="$PROFILE_DIR" \
