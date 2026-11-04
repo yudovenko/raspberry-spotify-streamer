@@ -6,6 +6,7 @@ import http.server
 import json
 import os
 import secrets
+import socket
 import socketserver
 import sys
 import urllib.error
@@ -50,6 +51,10 @@ def write_env(path, client_id, client_secret, refresh_token):
     os.chmod(path, 0o600)
 
 
+class IPv6TCPServer(socketserver.TCPServer):
+    address_family = socket.AF_INET6
+
+
 class Handler(http.server.BaseHTTPRequestHandler):
     # Results are stored on the class: a new handler instance serves each request.
     code = None
@@ -92,6 +97,12 @@ def main():
     if redirect.scheme != "http" or redirect.hostname not in {"127.0.0.1", "localhost", "::1"}:
         parser.error("--redirect-uri must be an http:// loopback URI, e.g. http://127.0.0.1:8888/callback")
     port = redirect.port or 80
+    # Listen on the same loopback family the redirect URI points at, otherwise
+    # the browser is sent to an address where nothing is listening.
+    if redirect.hostname == "::1":
+        server_class, bind_host = IPv6TCPServer, "::1"
+    else:
+        server_class, bind_host = socketserver.TCPServer, "127.0.0.1"
     Handler.callback_path = redirect.path or "/"
 
     client_id = input("Spotify Client ID: ").strip()
@@ -112,7 +123,7 @@ def main():
     print(f"{AUTH_URL}?{params}\n")
     print(f"Waiting on {args.redirect_uri} ...")
 
-    with socketserver.TCPServer(("127.0.0.1", port), Handler) as server:
+    with server_class((bind_host, port), Handler) as server:
         while not Handler.done:
             server.handle_request()
 
