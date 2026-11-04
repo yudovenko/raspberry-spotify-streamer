@@ -42,17 +42,28 @@ run() {
   "$@"
 }
 
+# Escape a value for use as a sed replacement with '#' as the delimiter.
+sed_escape() {
+  printf '%s' "$1" | sed -e 's/[\\&#]/\\&/g'
+}
+
+# Escape a value for use inside a double-quoted systemd Environment= line.
+systemd_escape() {
+  printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/%/%%/g'
+}
+
 render_template() {
   local src="$1"
   local dest="$2"
   sed \
-    -e "s#@APP_USER@#${APP_USER}#g" \
-    -e "s#@APP_DIR@#${APP_DIR}#g" \
-    -e "s#@ENV_FILE@#${ENV_FILE}#g" \
-    -e "s#@WEB_HOST@#${WEB_HOST}#g" \
-    -e "s#@WEB_PORT@#${WEB_PORT}#g" \
-    -e "s#@KIOSK_USER@#${KIOSK_USER}#g" \
-    -e "s#@KIOSK_URL@#${KIOSK_URL}#g" \
+    -e "s#@APP_USER@#$(sed_escape "${APP_USER}")#g" \
+    -e "s#@APP_DIR@#$(sed_escape "${APP_DIR}")#g" \
+    -e "s#@ENV_FILE@#$(sed_escape "${ENV_FILE}")#g" \
+    -e "s#@WEB_HOST@#$(sed_escape "${WEB_HOST}")#g" \
+    -e "s#@WEB_PORT@#$(sed_escape "${WEB_PORT}")#g" \
+    -e "s#@KIOSK_USER@#$(sed_escape "${KIOSK_USER}")#g" \
+    -e "s#@KIOSK_URL@#$(sed_escape "${KIOSK_URL}")#g" \
+    -e "s#@DEVICE_NAME@#$(sed_escape "$(systemd_escape "${DEVICE_NAME}")")#g" \
     "${src}" > "${dest}"
 }
 
@@ -68,12 +79,15 @@ detect_alsa_device() {
   fi
 
   local card_id
+  # Plain case-insensitive substring match. Works with mawk (the Raspberry Pi
+  # OS default), which has no IGNORECASE, and does not treat the needle as a
+  # regex, so names like "Modi 3+" match literally.
   card_id="$(awk -v needle="${USB_DAC_MATCH}" '
-    BEGIN { IGNORECASE = 1 }
+    BEGIN { needle = tolower(needle) }
     /^[[:space:]]*[0-9]+[[:space:]]+\[/ {
       line = $0
       getline desc
-      if (line ~ needle || desc ~ needle) {
+      if (index(tolower(line), needle) || index(tolower(desc), needle)) {
         sub(/^.*\[/, "", line)
         sub(/\].*$/, "", line)
         gsub(/[[:space:]]+$/, "", line)

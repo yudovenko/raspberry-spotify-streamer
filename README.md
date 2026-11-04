@@ -142,15 +142,18 @@ Create a Spotify app:
 3. Add this redirect URI:
 
 ```text
-http://localhost:8888/callback
+http://127.0.0.1:8888/callback
 ```
 
 4. Save the Client ID and Client Secret.
 
+Spotify no longer accepts `localhost` redirect URIs, so use the loopback IP
+exactly as shown.
+
 Generate the refresh token from your laptop through SSH port forwarding:
 
 ```bash
-ssh -L 8888:localhost:8888 pi@YOUR_PI_IP
+ssh -L 8888:127.0.0.1:8888 pi@YOUR_PI_IP
 sudo /opt/spotify-now-playing/get_refresh_token.py
 sudo systemctl restart spotify-now-playing.service
 ```
@@ -322,7 +325,7 @@ user-modify-playback-state
 Run:
 
 ```bash
-ssh -L 8888:localhost:8888 pi@YOUR_PI_IP
+ssh -L 8888:127.0.0.1:8888 pi@YOUR_PI_IP
 sudo /opt/spotify-now-playing/get_refresh_token.py
 sudo systemctl restart spotify-now-playing.service
 ```

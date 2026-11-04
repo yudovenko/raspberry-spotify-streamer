@@ -3,10 +3,12 @@ import argparse
 import base64
 import getpass
 import http.server
+import json
 import os
 import secrets
 import socketserver
 import sys
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -33,8 +35,6 @@ def exchange_code(client_id, client_secret, code, redirect_uri):
         },
     )
     with urllib.request.urlopen(request, timeout=20) as response:
-        import json
-
         return json.loads(response.read().decode())
 
 
@@ -51,22 +51,27 @@ def write_env(path, client_id, client_secret, refresh_token):
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
+    # Results are stored on the class: a new handler instance serves each request.
     code = None
     error = None
+    done = False
     expected_state = None
+    callback_path = "/callback"
 
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
         query = urllib.parse.parse_qs(parsed.query)
-        if parsed.path != "/callback":
+        if parsed.path != Handler.callback_path:
+            # Ignore stray requests (favicon, prefetch) and keep waiting.
             self.send_error(404)
             return
-        if query.get("state", [None])[0] != self.expected_state:
-            self.error = "OAuth state did not match."
+        Handler.done = True
+        if query.get("state", [None])[0] != Handler.expected_state:
+            Handler.error = "OAuth state did not match."
         elif "error" in query:
-            self.error = query["error"][0]
+            Handler.error = query["error"][0]
         else:
-            self.code = query.get("code", [None])[0]
+            Handler.code = query.get("code", [None])[0]
         self.send_response(200)
         self.send_header("Content-Type", "text/html")
         self.end_headers()
@@ -79,8 +84,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
 def main():
     parser = argparse.ArgumentParser(description="Generate and save a Spotify refresh token.")
     parser.add_argument("--env-file", default="/etc/spotify-now-playing.env")
-    parser.add_argument("--redirect-uri", default="http://localhost:8888/callback")
+    # Spotify no longer accepts "localhost" redirect URIs; use a loopback IP.
+    parser.add_argument("--redirect-uri", default="http://127.0.0.1:8888/callback")
     args = parser.parse_args()
+
+    redirect = urllib.parse.urlparse(args.redirect_uri)
+    if redirect.scheme != "http" or redirect.hostname not in {"127.0.0.1", "localhost", "::1"}:
+        parser.error("--redirect-uri must be an http:// loopback URI, e.g. http://127.0.0.1:8888/callback")
+    port = redirect.port or 80
+    Handler.callback_path = redirect.path or "/"
 
     client_id = input("Spotify Client ID: ").strip()
     client_secret = getpass.getpass("Spotify Client Secret: ").strip()
@@ -98,16 +110,25 @@ def main():
     )
     print("\nOpen this URL in your browser:\n")
     print(f"{AUTH_URL}?{params}\n")
-    print("Waiting on http://localhost:8888/callback ...")
+    print(f"Waiting on {args.redirect_uri} ...")
 
-    with socketserver.TCPServer(("127.0.0.1", 8888), Handler) as server:
-        server.handle_request()
+    with socketserver.TCPServer(("127.0.0.1", port), Handler) as server:
+        while not Handler.done:
+            server.handle_request()
 
     if Handler.error or not Handler.code:
         print(f"Authorization failed: {Handler.error or 'missing code'}", file=sys.stderr)
         return 1
 
-    token_payload = exchange_code(client_id, client_secret, Handler.code, args.redirect_uri)
+    try:
+        token_payload = exchange_code(client_id, client_secret, Handler.code, args.redirect_uri)
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode(errors="replace")
+        print(f"Token exchange failed: HTTP {exc.code} {detail}", file=sys.stderr)
+        return 1
+    except urllib.error.URLError as exc:
+        print(f"Token exchange failed: {exc.reason}", file=sys.stderr)
+        return 1
     refresh_token = token_payload.get("refresh_token")
     if not refresh_token:
         print("Spotify did not return a refresh token.", file=sys.stderr)

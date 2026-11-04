@@ -15,6 +15,7 @@ SPOTIFY_PLAYER_URL = "https://api.spotify.com/v1/me/player"
 STATIC_DIR = os.environ.get("STATIC_DIR", "/opt/spotify-now-playing/app/static")
 LOCAL_STATE_FILE = Path(os.environ.get("SPOTIFY_NOW_PLAYING_STATE_FILE", "/run/raspotify/now-playing.json"))
 LOCAL_STATE_MAX_AGE_SECONDS = int(os.environ.get("SPOTIFY_NOW_PLAYING_STATE_MAX_AGE_SECONDS", "21600"))
+DEVICE_NAME = os.environ.get("SPOTIFY_DEVICE_NAME") or "Canton RC-L"
 
 app = FastAPI(title="Spotify Now Playing")
 
@@ -48,12 +49,15 @@ async def refresh_access_token(force: bool = False) -> str | None:
     refresh_token = os.environ["SPOTIFY_REFRESH_TOKEN"]
     basic = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
 
-    async with httpx.AsyncClient(timeout=10) as client:
-        response = await client.post(
-            SPOTIFY_TOKEN_URL,
-            data={"grant_type": "refresh_token", "refresh_token": refresh_token},
-            headers={"Authorization": f"Basic {basic}"},
-        )
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.post(
+                SPOTIFY_TOKEN_URL,
+                data={"grant_type": "refresh_token", "refresh_token": refresh_token},
+                headers={"Authorization": f"Basic {basic}"},
+            )
+    except httpx.HTTPError:
+        return None
 
     if response.status_code != 200:
         return None
@@ -158,7 +162,7 @@ def local_state_response() -> JSONResponse | None:
             "album": state.get("album") or "",
             "album_art": state.get("album_art"),
             "track_id": state.get("track_id"),
-            "device": "Canton RC-L",
+            "device": DEVICE_NAME,
             "repeat_state": state.get("repeat_state") or "off",
             "server_time_ms": now_ms,
             "source": "raspotify-event",
@@ -193,6 +197,23 @@ def serialize_player(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+async def send_with_token(method: str, url: str, token: str, **kwargs: Any) -> httpx.Response | None:
+    """Send an authorized Spotify request, refreshing the token once on 401.
+
+    Returns None if the token cannot be refreshed. Raises httpx.HTTPError on
+    network failures.
+    """
+    async with httpx.AsyncClient(timeout=10) as client:
+        response = await client.request(method, url, headers={"Authorization": f"Bearer {token}"}, **kwargs)
+        if response.status_code != 401:
+            return response
+
+        token = await refresh_access_token(force=True)
+        if not token:
+            return None
+        return await client.request(method, url, headers={"Authorization": f"Bearer {token}"}, **kwargs)
+
+
 async def spotify_request(method: str, path: str, **kwargs: Any) -> JSONResponse:
     if not credentials_configured():
         return JSONResponse({"ok": False, "message": "Spotify API credentials are not configured."}, status_code=400)
@@ -201,21 +222,17 @@ async def spotify_request(method: str, path: str, **kwargs: Any) -> JSONResponse
     if not token:
         return JSONResponse({"ok": False, "message": "Could not refresh Spotify access token."}, status_code=502)
 
-    async with httpx.AsyncClient(timeout=10) as client:
-        response = await client.request(
-            method,
-            f"{SPOTIFY_PLAYER_URL}{path}",
-            headers={"Authorization": f"Bearer {token}"},
-            **kwargs,
+    try:
+        response = await send_with_token(method, f"{SPOTIFY_PLAYER_URL}{path}", token, **kwargs)
+    except httpx.HTTPError:
+        return JSONResponse(
+            {"ok": False, "message": "Could not reach the Spotify API."},
+            status_code=502,
+            headers={"Cache-Control": "no-store"},
         )
-        if response.status_code == 401:
-            token = await refresh_access_token(force=True)
-            response = await client.request(
-                method,
-                f"{SPOTIFY_PLAYER_URL}{path}",
-                headers={"Authorization": f"Bearer {token}"},
-                **kwargs,
-            )
+
+    if response is None:
+        return JSONResponse({"ok": False, "message": "Could not refresh Spotify access token."}, status_code=502)
 
     if response.status_code in (200, 202, 204):
         return JSONResponse({"ok": True}, headers={"Cache-Control": "no-store"})
@@ -250,20 +267,19 @@ async def current_playback() -> JSONResponse:
         response.status_code = 502
         return response
 
-    async with httpx.AsyncClient(timeout=10) as client:
-        response = await client.get(
-            SPOTIFY_PLAYER_URL,
-            headers={"Authorization": f"Bearer {token}"},
-            params={"additional_types": "track,episode"},
+    try:
+        response = await send_with_token(
+            "GET", SPOTIFY_PLAYER_URL, token, params={"additional_types": "track,episode"}
         )
+    except httpx.HTTPError:
+        response = empty_response("Could not reach the Spotify API.")
+        response.status_code = 502
+        return response
 
-        if response.status_code == 401:
-            token = await refresh_access_token(force=True)
-            response = await client.get(
-                SPOTIFY_PLAYER_URL,
-                headers={"Authorization": f"Bearer {token}"},
-                params={"additional_types": "track,episode"},
-            )
+    if response is None:
+        response = empty_response("Could not refresh Spotify access token.", configured=False)
+        response.status_code = 502
+        return response
 
     if response.status_code == 204:
         return empty_response("Nothing is playing.")
@@ -285,7 +301,7 @@ async def current_playback() -> JSONResponse:
         return empty_response("Nothing is playing.")
 
     if has_stale_progress(payload, payload["item"]):
-        return empty_response("Spotify returned stale playback state. Re-select Canton RC-L in Spotify.")
+        return empty_response(f"Spotify returned stale playback state. Re-select {DEVICE_NAME} in Spotify.")
 
     return JSONResponse(serialize_player(payload), headers={"Cache-Control": "no-store"})
 
